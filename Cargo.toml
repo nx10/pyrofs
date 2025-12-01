@@ -1,6 +1,6 @@
 [package]
 name = "pyrofs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 description = "Mount Python-owned memory as an ephemeral FUSE filesystem"

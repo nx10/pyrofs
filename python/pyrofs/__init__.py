@@ -30,4 +30,4 @@ Example usage:
 from ._pyrofs import MemFS, File, Directory, Symlink, MountHandle
 
 __all__ = ["MemFS", "File", "Directory", "Symlink", "MountHandle"]
-__version__ = "0.1.0"
+__version__ = "0.1.1"
