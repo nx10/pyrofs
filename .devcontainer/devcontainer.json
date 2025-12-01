@@ -1,0 +1,28 @@
+{
+    "name": "pyrofs",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "runArgs": [
+        "--cap-add=SYS_ADMIN",
+        "--device=/dev/fuse",
+        "--security-opt=apparmor:unconfined"
+    ],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "rust-lang.rust-analyzer",
+                "ms-python.python",
+                "tamasfe.even-better-toml",
+                "serayuzgur.crates"
+            ],
+            "settings": {
+                "rust-analyzer.check.command": "clippy",
+                "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python"
+            }
+        }
+    },
+    "postCreateCommand": "python3 -m venv .venv && . .venv/bin/activate && pip install maturin pytest pytest-timeout && maturin develop",
+    "postStartCommand": ". .venv/bin/activate",
+    "remoteUser": "vscode"
+}

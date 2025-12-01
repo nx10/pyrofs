@@ -1,0 +1,29 @@
+[build-system]
+requires = ["maturin>=1.10,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "pyrofs"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+dynamic = ["version"]
+description = "Mount Python-owned memory as an ephemeral FUSE filesystem"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-timeout>=2.0"]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "python"
+module-name = "pyrofs._pyrofs"
+
+[tool.pytest.ini_options]
+markers = [
+    "fuse: marks tests that require FUSE filesystem support (deselect with '-m \"not fuse\"')",
+]
+testpaths = ["tests"]
+timeout = 30

@@ -1,0 +1,26 @@
+[package]
+name = "pyrofs"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Mount Python-owned memory as an ephemeral FUSE filesystem"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "pyrofs"
+crate-type = ["cdylib"]
+
+[dependencies]
+env_logger = "0.11"
+fuser = "0.16"
+libc = "0.2"
+log = "0.4"
+parking_lot = "0.12"
+pyo3 = { version = "0.27", features = ["extension-module"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = true
+codegen-units = 1
