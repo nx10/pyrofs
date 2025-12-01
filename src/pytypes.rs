@@ -4,8 +4,10 @@ use fuser::MountOption;
 use parking_lot::Mutex;
 use pyo3::exceptions::{PyOSError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use std::ffi::CString;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Handle to a mounted filesystem - used as context manager
 #[pyclass(name = "MountHandle")]
@@ -33,9 +35,86 @@ impl PyMountHandle {
 
     /// Unmount the filesystem
     fn unmount(&mut self) -> PyResult<()> {
-        if let Some(session) = self.session.take() {
-            drop(session);
+        if self.session.is_none() {
+            return Ok(());
         }
+
+        // Drop the session first - this releases the FUSE file descriptor
+        // The Drop implementation of BackgroundSession should handle basic cleanup
+        self.session = None;
+
+        // Give it a moment to clean up
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Now try to ensure clean unmount
+        let mount_point_str = match self.mount_point.to_str() {
+            Some(s) => s,
+            None => return Ok(()), // Invalid path, nothing to unmount
+        };
+
+        let mountpoint_c = match CString::new(mount_point_str) {
+            Ok(c) => c,
+            Err(_) => return Ok(()), // Invalid path, nothing to unmount
+        };
+
+        #[cfg(target_os = "linux")]
+        {
+            // Try regular umount (not lazy)
+            let result = unsafe { libc::umount2(mountpoint_c.as_ptr(), 0) };
+
+            // If umount succeeded or filesystem wasn't mounted, we're done
+            if result == 0 {
+                return Ok(());
+            }
+
+            let err = std::io::Error::last_os_error();
+            match err.raw_os_error() {
+                Some(libc::EINVAL) | Some(libc::ENOENT) => {
+                    // Not mounted, nothing to do
+                    return Ok(());
+                }
+                Some(libc::EPERM) | Some(libc::EACCES) => {
+                    // Permission denied, try fusermount
+                    if let Ok(output) = std::process::Command::new("fusermount")
+                        .arg("-u")
+                        .arg(mount_point_str)
+                        .output()
+                    {
+                        if output.status.success() {
+                            return Ok(());
+                        }
+                        // If fusermount also says not mounted, that's fine
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        if stderr.contains("not found in") || stderr.contains("not mounted") {
+                            return Ok(());
+                        }
+                    }
+                }
+                _ => {
+                    // Other error, but don't fail - the session is dropped anyway
+                }
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let result = unsafe { libc::unmount(mountpoint_c.as_ptr(), 0) };
+
+            if result == 0 {
+                return Ok(());
+            }
+
+            let err = std::io::Error::last_os_error();
+            match err.raw_os_error() {
+                Some(libc::EINVAL) | Some(libc::ENOENT) => {
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+
+        // If we get here, unmount had some issue, but don't fail
+        // since the session is already dropped
         Ok(())
     }
 
@@ -49,6 +128,13 @@ impl PyMountHandle {
     #[getter]
     fn is_mounted(&self) -> bool {
         self.session.is_some()
+    }
+}
+
+impl Drop for PyMountHandle {
+    fn drop(&mut self) {
+        // Ensure unmount is called when dropped
+        let _ = self.unmount();
     }
 }
 
@@ -312,7 +398,6 @@ impl PyFilesystem {
 
         let mut options = vec![
             MountOption::FSName("pyrofs".to_string()),
-            MountOption::AutoUnmount,
             MountOption::DefaultPermissions,
         ];
 
