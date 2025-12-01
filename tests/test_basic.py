@@ -635,3 +635,210 @@ def test_utimens(mount_dir):
         stat = os.stat(file_path)
         assert stat.st_atime == 1000000
         assert stat.st_mtime == 2000000
+
+
+def test_concurrent_access():
+    """Test that multiple threads can access the filesystem."""
+    from pyrofs import MemFS
+    import threading
+
+    fs = MemFS()
+    fs.create_file("/shared.txt", b"initial")
+
+    def writer(content):
+        f = fs.get("/shared.txt")
+        f.write(content)
+
+    threads = [
+        threading.Thread(target=writer, args=(b"thread1",)),
+        threading.Thread(target=writer, args=(b"thread2",)),
+    ]
+
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # File should have one of the contents
+    f = fs.get("/shared.txt")
+    assert f.read() in [b"thread1", b"thread2"]
+
+
+def test_large_file():
+    """Test handling of larger files."""
+    from pyrofs import MemFS
+
+    fs = MemFS()
+    # Create a 1MB file
+    large_content = b"x" * (1024 * 1024)
+    f = fs.create_file("/large.txt", large_content)
+    assert f.size == 1024 * 1024
+    assert f.read() == large_content
+
+
+def test_deep_directory_nesting():
+    """Test deeply nested directories."""
+    from pyrofs import MemFS
+
+    fs = MemFS()
+    # Create a very deep path
+    deep_path = "/" + "/".join(f"level{i}" for i in range(50))
+    fs.makedirs(deep_path)
+    assert fs.exists(deep_path)
+
+
+def test_many_files_in_directory():
+    """Test directory with many files."""
+    from pyrofs import MemFS
+
+    fs = MemFS()
+    # Create 1000 files
+    for i in range(1000):
+        fs.create_file(f"/file{i}.txt", f"content{i}".encode())
+
+    contents = fs.listdir("/")
+    assert len(contents) == 1000
+
+
+def test_rename_to_existing_directory_fails():
+    """Test that renaming file to existing directory fails."""
+    from pyrofs import MemFS
+
+    fs = MemFS()
+    fs.create_file("/file.txt", b"content")
+    fs.create_dir("/dir")
+    with pytest.raises(ValueError, match="directory"):
+        fs.rename("/file.txt", "/dir")
+
+
+def test_symlink_broken():
+    """Test broken symlink (target doesn't exist)."""
+    from pyrofs import MemFS
+
+    fs = MemFS()
+    # Create symlink to non-existent target
+    link = fs.symlink("/nonexistent.txt", "/broken.txt")
+    assert fs.is_symlink("/broken.txt")
+    assert fs.readlink("/broken.txt") == "/nonexistent.txt"
+
+
+def test_symlink_chain():
+    """Test chain of symlinks."""
+    from pyrofs import MemFS
+
+    fs = MemFS()
+    fs.create_file("/target.txt", b"final content")
+    fs.symlink("/target.txt", "/link1.txt")
+    fs.symlink("/link1.txt", "/link2.txt")
+    assert fs.readlink("/link1.txt") == "/target.txt"
+    assert fs.readlink("/link2.txt") == "/link1.txt"
+
+
+def test_path_with_special_characters():
+    """Test files with special characters in names."""
+    from pyrofs import MemFS
+
+    fs = MemFS()
+    # Test various special characters
+    names = [
+        "file with spaces.txt",
+        "file-with-dashes.txt",
+        "file_with_underscores.txt",
+    ]
+    for name in names:
+        fs.create_file(f"/{name}", b"content")
+        assert fs.exists(f"/{name}")
+
+
+@pytest.mark.fuse
+@pytest.mark.skipif(not os.path.exists("/dev/fuse"), reason="FUSE not available")
+def test_multiple_sequential_mounts(mount_dir):
+    """Test mounting, unmounting, and remounting the same filesystem."""
+    from pyrofs import MemFS
+
+    fs = MemFS()
+    fs.create_file("/persistent.txt", b"data")
+
+    # First mount
+    with fs.mount(mount_dir, allow_other=False):
+        time.sleep(0.1)
+        assert os.path.exists(os.path.join(mount_dir, "persistent.txt"))
+
+    # Second mount - data should still be there
+    with fs.mount(mount_dir, allow_other=False):
+        time.sleep(0.1)
+        with open(os.path.join(mount_dir, "persistent.txt"), "rb") as f:
+            assert f.read() == b"data"
+
+
+@pytest.mark.fuse
+@pytest.mark.skipif(not os.path.exists("/dev/fuse"), reason="FUSE not available")
+def test_remove_through_fuse(mount_dir):
+    """Test removing files through FUSE."""
+    from pyrofs import MemFS
+
+    fs = MemFS()
+    fs.create_file("/removeme.txt", b"content")
+
+    with fs.mount(mount_dir, allow_other=False):
+        time.sleep(0.1)
+        file_path = os.path.join(mount_dir, "removeme.txt")
+        os.remove(file_path)
+
+        # Verify removal on Python side
+        assert not fs.exists("/removeme.txt")
+
+
+@pytest.mark.fuse
+@pytest.mark.skipif(not os.path.exists("/dev/fuse"), reason="FUSE not available")
+def test_chmod_through_fuse(mount_dir):
+    """Test changing permissions through FUSE."""
+    from pyrofs import MemFS
+
+    fs = MemFS()
+    fs.create_file("/perms.txt", b"content", mode=0o644)
+
+    with fs.mount(mount_dir, allow_other=False):
+        time.sleep(0.1)
+        file_path = os.path.join(mount_dir, "perms.txt")
+
+        # Change permissions
+        os.chmod(file_path, 0o600)
+
+        # Verify change
+        stat = os.stat(file_path)
+        assert stat.st_mode & 0o777 == 0o600
+
+
+def test_file_read_write_offset():
+    """Test that file operations maintain content correctly."""
+    from pyrofs import MemFS
+
+    fs = MemFS()
+    f = fs.create_file("/offset.txt", b"Hello, World!")
+
+    # Multiple writes should replace content
+    f.write(b"Hi")
+    assert f.read() == b"Hi"
+    assert f.size == 2
+
+
+def test_root_is_directory():
+    """Test that root behaves like a directory."""
+    from pyrofs import MemFS, Directory
+
+    fs = MemFS()
+    root = fs.root
+    assert isinstance(root, Directory)
+    assert root.name == ""
+
+
+def test_empty_path_handling():
+    """Test handling of empty and root paths."""
+    from pyrofs import MemFS
+
+    fs = MemFS()
+
+    # These should all refer to root
+    assert fs.exists("/")
+    assert fs.exists("")
