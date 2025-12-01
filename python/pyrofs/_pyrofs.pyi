@@ -37,6 +37,11 @@ class File:
         ...
 
     @property
+    def size(self) -> int:  # MISSING
+        """The size of the file in bytes"""
+        ...
+
+    @property
     def content(self) -> bytes:
         """The content of the file"""
         ...
@@ -56,6 +61,21 @@ class File:
         """Set the file mode/permissions"""
         ...
 
+    # MISSING methods from your tests
+    def read(self) -> bytes:
+        """Read the entire content of the file"""
+        ...
+
+    def write(self, content: bytes) -> None:
+        """Write content to the file, replacing existing content"""
+        ...
+
+    def truncate(self, size: int) -> None:
+        """Truncate or extend the file to the specified size"""
+        ...
+
+    def __repr__(self) -> str: ...
+
 class Directory:
     """Represents a directory in the virtual filesystem"""
 
@@ -74,6 +94,14 @@ class Directory:
         """Set the directory mode/permissions"""
         ...
 
+    # MISSING - if you expose children
+    @property
+    def children(self) -> dict[str, Union[File, Directory, Symlink]]:  # If exposed
+        """The children of this directory"""
+        ...
+
+    def __repr__(self) -> str: ...
+
 class Symlink:
     """Represents a symbolic link in the virtual filesystem"""
 
@@ -86,6 +114,8 @@ class Symlink:
     def target(self) -> str:
         """The target path of the symlink"""
         ...
+
+    def __repr__(self) -> str: ...
 
 class MemFS:
     """The main filesystem object for managing an in-memory FUSE filesystem"""
